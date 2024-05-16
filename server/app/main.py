@@ -1,156 +1,96 @@
-# routes/endpoints/OAuth
-from flask import request, jsonify, abort
-from config import app, db
-from models import Contact, User
-from cryptography.fernet import Fernet
-from os import environ as env
-import bcrypt
-import jwt
-import datetime
-from dotenv import find_dotenv, load_dotenv
+# Import necessary modules
+from flask import jsonify, request, session, redirect, url_for
+from flask_login import login_required, current_user, login_user, logout_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from . import app, db  # Import Flask app and SQLAlchemy instance
+from .models import User, Contact  # Import your User and Contact models
 
-ENV_FILE = find_dotenv()
-if ENV_FILE:
-    load_dotenv(ENV_FILE)
+# Define routes
+@app.route('/dashboard', methods=['GET'])
+@login_required
+def client_dashboard():
+    # Fetch all contacts for the current user
+    contacts = Contact.query.filter_by(user_id=current_user.id).all()
+    return jsonify([contact.to_dict() for contact in contacts])
 
-app.secret_key = env.get("FERNET_KEY")
+@app.route('/contacts', methods=['GET'])
+@login_required
+def get_all_contacts():
+    # Fetch all contacts for the current user
+    contacts = Contact.query.filter_by(user_id=current_user.id).all()
+    return jsonify([contact.to_dict() for contact in contacts])
 
-fern = Fernet(app.secret_key)
-
-#Decrypt contact
-def decrypt_contact(contact, user_id):
-    if contact.database_owner_id != user_id:
-        abort(403, "You are not authorized to view this contact.")
-
-    decrypted_contact = {
-        "id": contact.id,
-        "status": fern.decrypt(contact.status).decode(),
-        "name": fern.decrypt(contact.name).decode(),
-        "address": fern.decrypt(contact.address).decode(),
-        "number": fern.decrypt(contact.number).decode(),
-        "meetings": fern.decrypt(contact.meetings).decode(),
-        "transactions": fern.decrypt(contact.transactions).decode(),
-        "details": fern.decrypt(contact.details).decode()
-    }
-    return decrypted_contact
-
-
-def validate_jwt(token):
-    try:
-        decoded = jwt.decode(token, env.get("JWT_SECRET"), algorithms=["HS256"])
-        return decoded
-    except jwt.ExpiredSignatureError:
-        abort(401, "Token has expired, please login again.")
-    except jwt.InvalidTokenError:
-        abort(401, "Invalid token.")
-
-#Get all contacts
-@app.route('/contacts', methods=["GET"])
-def get_contacts():
-    token = request.headers.get('Authorization')
-    if not token:
-        abort(401, "Token is missing.")
-    token = token.split(' ')[1]  
-    validated_token = validate_jwt(token)
-    user_id = validated_token['id']
-
-    user = User.query.get_or_404(user_id)
-    contacts = user.contacts
-
-    json_contacts = [decrypt_contact(contact, user_id) for contact in contacts]
-
-    return jsonify({"contacts": json_contacts}), 200
-
-#Get all users
-@app.route('/users', methods=["GET"])
-def get_users():
-    users = User.query.all()
-    json_user = [user.to_json() for user in users]
-    return jsonify({"users": json_user}), 200
-
-#Login
-@app.route('/login', methods=['POST'])
-def login_user():
-    data = request.json
-
-    user = User.query.filter(User.email == data['email']).first()
-
-    if not user or not bcrypt.checkpw(data['password'].encode('utf-8'), user.password.encode('utf-8')):
-        abort(401, "Invalid email or password.")
-
-    payload = {"id": user.id, "email": user.email, "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)}
-    jwt_token = jwt.encode(payload, env.get("JWT_SECRET"), algorithm="HS256")
-    return jsonify({'token': jwt_token}), 200
-
-#Get user with token
-@app.route("/user", methods=["GET"])
+@app.route('/user', methods=['GET'])
+@login_required
 def get_user_with_token():
-    try:
-        token = request.headers['Authorization'].split(' ')[1]
-        validated_token = validate_jwt(token)
-        return jsonify({"user": validated_token})
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-        abort(401, "Token is invalid or expired.")
+    # Return the current user's information
+    return jsonify(current_user.to_dict())
 
-#Get Contact by ID
-@app.route('/contacts/<int:id>', methods=["GET"])
-def get_contact(id):
-    contact = Contact.query.get_or_404(id)
-    return jsonify(contact.to_json()), 200
+@app.route('/contacts/<int:id>', methods=['GET'])
+@login_required
+def get_contact_by_id(id):
+    # Fetch the contact with the given ID
+    contact = Contact.query.get(id)
+    return jsonify(contact.to_dict())
 
-#Create Contact
 @app.route('/contacts', methods=['POST'])
+@login_required
 def create_contact():
+    # Extract data from the request
     data = request.json
-    new_contact = Contact(status=data['status'], name=data['name'], address=data['address'],
-                          number=data['number'], meetings=data['meetings'],
-                          transactions=data['transactions'], details=data['details'])
+    name = data.get('name')
+    email = data.get('email')
+    phone_number = data.get('phone_number')
+    details = data.get('details')
+    status = data.get('status')
+    permissions = data.get('permissions')
+
+    # Check if required fields are provided
+    if not name or not email:
+        return jsonify({"message": "Name and email are required"}), 400
+
+    # Create a new contact
+    new_contact = Contact(
+        user_id=current_user.id,
+        name=name,
+        email=email,
+        phone_number=phone_number,
+        details=details,
+        status=status,
+        permissions=permissions
+    )
+
+    # Add the new contact to the database
     db.session.add(new_contact)
     db.session.commit()
-    return jsonify({"message": "Contact created successfully"}), 201
 
-#Create User
-@app.route('/users', methods=['POST'])
-def create_user():
-    data = request.json
-    hashed_password = bcrypt.hashpw(data['password'].encode('utf-8'), bcrypt.gensalt())
-    new_user = User(email=data['email'], password=hashed_password.decode('utf-8'))
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({"message": "User created successfully"})
+    return jsonify({"message": "Contact created successfully", "contact_id": new_contact.id}), 201
 
-#Delete Contact
-@app.route('/contacts/<int:id>', methods={"DELETE"})
+@app.route('/contacts/<int:id>', methods=['DELETE'])
+@login_required
 def delete_contact(id):
-    contact = Contact.query.get_or_404(id)
+    # Fetch the contact from the database
+    contact = Contact.query.get(id)
+
+    # Check if the contact exists
+    if not contact:
+        return jsonify({"message": "Contact not found"}), 404
+
+    # Check if the logged-in user is the owner of the contact
+    if contact.user_id != current_user.id:
+        abort(403, "You are not authorized to delete this contact")
+
+    # Delete the contact
     db.session.delete(contact)
     db.session.commit()
-    return jsonify({"message": "Contact Deleted!"}), 200
 
-#Delete User
-@app.route('/users/<int:id>', methods={"DELETE"})
-def delete_user(id):
-    user = User.query.get_or_404(id)
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({"message": "User Deleted!"}), 200
+    return jsonify({"message": "Contact deleted successfully"}), 200
 
-
-if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-
-    app.run(debug=True)
-
-
-
-# NOTES REGARDEING MY CODE : 
-# Updated token validation to use the Authorization header with the Bearer token scheme.
-# Changed password authentication to return 401 for invalid credentials.
-# Updated token generation during login to include user ID.
-# Consolidated token validation code into a single function.
-# Removed unnecessary try-except blocks and simplified the logic in the /user endpoint.
-# Fixed potential vulnerabilities related to password handling.
-# Ensured consistent status code and error message formats throughout the application.
-# Maintained the functionality for contacts decryption based on database ownership.
-# Ensured routes are organized and follow a consistent naming convention.
+@app.route('/admin/users', methods=['GET'])
+@login_required
+def get_all_users():
+    # Fetch all users (admin only)
+    if not current_user.is_admin:
+        abort(403, "You are not authorized to view this page.")
+    users = User.query.all()
+    return jsonify([user.to_dict() for user in users])

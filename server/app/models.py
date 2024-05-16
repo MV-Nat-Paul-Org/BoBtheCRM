@@ -1,46 +1,67 @@
-from config import db
+from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from sqlalchemy.orm import relationship
+from . import db
 
 class Contact(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    status = db.Column(db.String(80), nullable=False)
-    name = db.Column(db.String(100), nullable=False)
-    address = db.Column(db.String(200))
-    number = db.Column(db.String(20))
-    meetings = db.Column(db.String(200))
-    transactions = db.Column(db.String(200))
-    details = db.Column(db.Text)
- 
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
+    status = Column(String(80), nullable=False)
+    name = Column(String(100), nullable=False)
+    addresses = db.relationship('Address', backref='contact', cascade='all, delete-orphan')
+    email = Column(String(255))
+    phone_number = Column(String(20))
+    details = Column(Text)
+    events = db.relationship('CalendarEvent', backref='contact', cascade='all, delete-orphan')
+    permissions = Column(String(20), nullable=False, default='Private')
+
     def to_json(self):
         return {
             "id": self.id,
             "status": self.status,
             "name": self.name,
             "address": self.address,
-            "number": self.number,
+            "email": self.email,
+            "phone_number": self.phone_number,
             "meetings": self.meetings,
-            "transactions": self.transactions,
-            "details": self.details
+            "details": self.details,
+            "permissions": self.permissions
         }
+        
+class Address(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=False)
+    street = db.Column(db.String(200))
+    apt_number = db.Column(db.String(20))
+    city = db.Column(db.String(100))
+    state = db.Column(db.String(50))
+    zip_code = db.Column(db.String(20))
+        
+
+class Transaction(db.Model):
+    id = Column(Integer, primary_key=True)
+    contact_id = Column(Integer, ForeignKey('contact.id'), nullable=False)
+    date = Column(String(20), nullable=False)
+    amount = Column(Integer, nullable=False)
+    description = Column(Text)
+    category = Column(String(50))
+    payment_method = Column(String(50))
+    notes = Column(Text)
 
 class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)    
-    email = db.Column(db.String(255), nullable=False, unique=True)
-    password = db.Column(db.String(80), nullable=False)
-    is_admin = db.Column(db.Boolean, default=False)
-    database_owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
-    # Add a relationship to represent the user's database
-    database = db.relationship('User', remote_side=[id])
+    id = Column(Integer, primary_key=True)    
+    email = Column(String(255), nullable=False, unique=True)
+    # using OAuth, need password_hash field
+    password_hash = Column(String(80), nullable=False)
 
-    def to_json(self):
-        return {
-            "id": self.id,
-            "email": self.email,
-            "password": self.password,
-            "is_admin": self.is_admin
-        }
+    def get_user_id(self):
+        return self.id
 
-# NOTES REGARDING MY CODE : 
-# Each User has a database_owner_id field, which refers to the user who owns the database. This allows for separating databases between different users.
-# A relationship database is established in the User model to represent the user's database. This allows for easy querying of a user's database.
-# The Contact model has a user_id field, which refers to the user who owns the contact. This ensures that contacts are associated with their respective users.
+
+class CalendarEvent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=False)
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    start_time = db.Column(db.DateTime, nullable=False)
+    end_time = db.Column(db.DateTime, nullable=False)
+    location = db.Column(db.String(200))
