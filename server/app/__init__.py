@@ -1,31 +1,20 @@
+from datetime import timedelta
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from authlib.integrations.flask_client import OAuth
-from datetime import timedelta  # Import timedelta for session lifetime
-from . import main  # Import your main route file
+from flask_dance.contrib.google import make_google_blueprint
+
 
 app = Flask(__name__)
-app.secret_key = '!secret'
 app.config.from_object('config')
-app.config['SESSION_COOKIE_SECURE'] = True
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 
 db = SQLAlchemy(app)
 
 # Initialize OAuth extension for authentication
-CONF_URL = 'https://accounts.google.com/.well-known/openid-configuration'
-oauth = OAuth(app)
-oauth.register(
-    name='google',
-    server_metadata_url=CONF_URL,
-    client_kwargs={
-        'scope': 'openid email profile'
-    }
+google_blueprint = make_google_blueprint(
+    client_id="YOUR_GOOGLE_CLIENT_ID", # Replace with your Google client ID
+    client_secret="YOUR_GOOGLE_CLIENT_SECRET", # Replace with your Google client secret
+    scope=["profile", "email"],
+    redirect_url="/google-login"
 )
-
-# Register your main route file
-app.register_blueprint(main)
-
-if __name__ == '__main__':
-    app.run()
+app.register_blueprint(google_blueprint, url_prefix="/login")
 

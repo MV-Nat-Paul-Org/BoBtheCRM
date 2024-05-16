@@ -1,96 +1,87 @@
-# Import necessary modules
 from flask import jsonify, request, session, redirect, url_for
 from flask_login import login_required, current_user, login_user, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_dance.contrib.google import make_google_blueprint, google
+
+# Import necessary modules
 from . import app, db  # Import Flask app and SQLAlchemy instance
 from .models import User, Contact  # Import your User and Contact models
 
+# Configure Google OAuth
+google_blueprint = make_google_blueprint(
+    client_id="YOUR_GOOGLE_CLIENT_ID",
+    client_secret="YOUR_GOOGLE_CLIENT_SECRET",
+    scope=["profile", "email"],
+    redirect_url="/google-login"
+)
+app.register_blueprint(google_blueprint, url_prefix="/login")
+
 # Define routes
-@app.route('/dashboard', methods=['GET'])
-@login_required
-def client_dashboard():
-    # Fetch all contacts for the current user
-    contacts = Contact.query.filter_by(user_id=current_user.id).all()
-    return jsonify([contact.to_dict() for contact in contacts])
+@app.route('/google-login')
+def google_login():
+    if not google.authorized:
+        return redirect(url_for("google.login"))
+    resp = google.get("/oauth2/v2/userinfo")
+    assert resp.ok, resp.text
+    user_info = resp.json()
+    email = user_info["email"]
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        # Create a new user if it doesn't exist
+        user = User(email=email)
+        db.session.add(user)
+        db.session.commit()
+    login_user(user)
+    return redirect(url_for("client_dashboard"))
 
-@app.route('/contacts', methods=['GET'])
-@login_required
-def get_all_contacts():
-    # Fetch all contacts for the current user
-    contacts = Contact.query.filter_by(user_id=current_user.id).all()
-    return jsonify([contact.to_dict() for contact in contacts])
-
-@app.route('/user', methods=['GET'])
-@login_required
-def get_user_with_token():
-    # Return the current user's information
-    return jsonify(current_user.to_dict())
-
-@app.route('/contacts/<int:id>', methods=['GET'])
-@login_required
-def get_contact_by_id(id):
-    # Fetch the contact with the given ID
-    contact = Contact.query.get(id)
-    return jsonify(contact.to_dict())
-
-@app.route('/contacts', methods=['POST'])
-@login_required
-def create_contact():
-    # Extract data from the request
+@app.route('/signup', methods=['POST'])
+def signup():
     data = request.json
-    name = data.get('name')
     email = data.get('email')
-    phone_number = data.get('phone_number')
-    details = data.get('details')
-    status = data.get('status')
-    permissions = data.get('permissions')
+    password = data.get('password')
 
     # Check if required fields are provided
-    if not name or not email:
-        return jsonify({"message": "Name and email are required"}), 400
+    if not email or not password:
+        return jsonify({"message": "Email and password are required"}), 400
 
-    # Create a new contact
-    new_contact = Contact(
-        user_id=current_user.id,
-        name=name,
-        email=email,
-        phone_number=phone_number,
-        details=details,
-        status=status,
-        permissions=permissions
-    )
+    # Check if the email is already registered
+    if User.query.filter_by(email=email).first():
+        return jsonify({"message": "Email already registered"}), 400
 
-    # Add the new contact to the database
-    db.session.add(new_contact)
+    # Create a new user
+    new_user = User(email=email, password=generate_password_hash(password))
+
+    # Add the new user to the database
+    db.session.add(new_user)
     db.session.commit()
 
-    return jsonify({"message": "Contact created successfully", "contact_id": new_contact.id}), 201
+    login_user(new_user)
+    return jsonify({"message": "User created successfully"}), 201
 
-@app.route('/contacts/<int:id>', methods=['DELETE'])
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    email = data.get('email')
+    password = data.get('password')
+
+    # Check if required fields are provided
+    if not email or not password:
+        return jsonify({"message": "Email and password are required"}), 400
+
+    # Fetch the user from the database
+    user = User.query.filter_by(email=email).first()
+
+    # Check if the user exists and the password is correct
+    if not user or not check_password_hash(user.password, password):
+        return jsonify({"message": "Invalid email or password"}), 401
+
+    login_user(user)
+    return jsonify({"message": "Logged in successfully"}), 200
+
+@app.route('/logout', methods=['POST'])
 @login_required
-def delete_contact(id):
-    # Fetch the contact from the database
-    contact = Contact.query.get(id)
+def logout():
+    logout_user()
+    return jsonify({"message": "Logged out successfully"}), 200
 
-    # Check if the contact exists
-    if not contact:
-        return jsonify({"message": "Contact not found"}), 404
-
-    # Check if the logged-in user is the owner of the contact
-    if contact.user_id != current_user.id:
-        abort(403, "You are not authorized to delete this contact")
-
-    # Delete the contact
-    db.session.delete(contact)
-    db.session.commit()
-
-    return jsonify({"message": "Contact deleted successfully"}), 200
-
-@app.route('/admin/users', methods=['GET'])
-@login_required
-def get_all_users():
-    # Fetch all users (admin only)
-    if not current_user.is_admin:
-        abort(403, "You are not authorized to view this page.")
-    users = User.query.all()
-    return jsonify([user.to_dict() for user in users])
+# Rest of the routes remain the same

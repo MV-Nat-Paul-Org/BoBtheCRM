@@ -1,7 +1,6 @@
 import re 
-
-from flask import Blueprint, jsonify, request, session, redirect, url_for
-from flask_login import login_user, logout_user, current_user
+from flask import Blueprint, jsonify, request, session, redirect, url_for, app
+from flask_login import login_user, logout_user, current_user, login_required
 from werkzeug.security import generate_password_hash, check_password_hash
 from .models import db, User
 from flask_limiter import Limiter
