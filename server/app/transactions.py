@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from .models import Contact, Transaction
+from .models import db
 
 # Create a blueprint for transactions
 transactions_bp = Blueprint('transactions', __name__)
@@ -55,8 +56,10 @@ def update_transaction(transaction_id):
         return jsonify({'message': 'Transaction not found'}), 404
     # Update the transaction
     data = request.get_json()
-    transaction.amount = data.get('amount')
-    transaction.description = data.get('description')
+    if 'amount' in data:
+        transaction.amount = data['amount']
+    if 'description' in data:
+        transaction.description = data['description']
     db.session.commit()
     return jsonify(transaction)
 
@@ -71,5 +74,3 @@ def delete_transaction(transaction_id):
     db.session.delete(transaction)
     db.session.commit()
     return jsonify({'message': 'Transaction deleted'})
-
-
