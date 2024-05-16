@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# routes/endpoints/OAuth
-=======
 # Import necessary modules
 from flask import jsonify, request, session, redirect, url_for
 from flask_login import login_required, current_user, login_user, logout_user
@@ -97,4 +94,3 @@ def get_all_users():
         abort(403, "You are not authorized to view this page.")
     users = User.query.all()
     return jsonify([user.to_dict() for user in users])
->>>>>>> 11d89ac (Refactor code structure and add comments)

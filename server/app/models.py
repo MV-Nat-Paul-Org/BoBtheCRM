@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# database models
-=======
 from sqlalchemy import Column, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from . import db
@@ -68,4 +65,3 @@ class CalendarEvent(db.Model):
     start_time = db.Column(db.DateTime, nullable=False)
     end_time = db.Column(db.DateTime, nullable=False)
     location = db.Column(db.String(200))
->>>>>>> 11d89ac (Refactor code structure and add comments)
